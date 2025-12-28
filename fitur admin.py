@@ -1,0 +1,1206 @@
+import psycopg2
+from psycopg2 import Error,  sql
+import os
+
+def connect_db():
+    try:
+        connection = psycopg2.connect(user="postgres",
+                                      password="langgeng847",
+                                      host="127.0.0.1",
+                                      port="5432",
+                                      database="Seedbridge")
+        cursor = connection.cursor()
+        return connection, cursor
+    except (Exception, Error) as error:
+        return None, None
+def commit_db(connection, cursor):
+    try:
+        connection.commit()
+        affected = cursor.rowcount  
+        return affected > 0         
+    except Exception as e:
+        print("Error saat commit:", e)
+        connection.rollback()
+        return False
+    finally:
+        try:
+            cursor.close()
+            connection.close()
+        except:
+            pass
+def clear_terminal():
+    os.system('cls')
+# FITUR CUSTOMER
+def Katalog_Benih(id_user, role):
+    connection, cursor = connect_db()
+    clear_terminal()
+    print('1. Tampilkan semua Katalog Menu')
+    print()
+    print("  Filter Berdasarkan Kategori ")
+    print("2. Harga Terendah")
+    print("3. Harga Tertinggi")
+    print("4. Stok Tersedia")
+    print("5. Kembali ke Menu Customer")
+    print()
+    pilih = input('Pilih Menu anda 1/2/3/4/5: ')
+    
+    QUERY_BASE = """
+        SELECT
+        b.id_benih, b.nama_benih, k.nama_kategori, b.harga, r.tanggal_kadaluarsa,
+        SUM(r.jumlah_produksi) as stok    
+        FROM benih b
+        JOIN kategori_benih k ON b.id_kategori_benih = k.id_kategori_benih
+        LEFT JOIN riwayat_produksi r ON b.id_benih = r.id_benih
+        GROUP BY b.id_benih, b.nama_benih, k.nama_kategori, b.harga, r.tanggal_kadaluarsa 
+    """
+    try: 
+        if pilih == '1':
+            query = QUERY_BASE
+        elif pilih == "2":
+            query = QUERY_BASE + " ORDER BY b.harga ASC"    
+        elif pilih == "3":
+            query = QUERY_BASE + " ORDER BY b.harga DESC"
+        elif pilih == "4":
+            query =  """
+            SELECT
+            b.id_benih, b.nama_benih, k.nama_kategori, b.harga, r.tanggal_kadaluarsa,
+            SUM(r.jumlah_produksi) as stok    
+            FROM benih b
+            JOIN kategori_benih k ON b.id_kategori_benih = k.id_kategori_benih
+            LEFT JOIN riwayat_produksi r ON b.id_benih = r.id_benih
+            GROUP BY b.id_benih, b.nama_benih, k.nama_kategori, b.harga, r.tanggal_kadaluarsa 
+            HAVING SUM(r.jumlah_produksi) > 0 
+            ORDER BY b.nama_benih ASC
+        """
+        elif pilih == "5":
+            clear_terminal()
+            return menu_customer(id_user, role)
+        else:
+            print("Pilihan tidak valid.")
+            return Katalog_Benih(id_user, role)
+
+        if pilih in ['1', '2', '3', '4']:
+            cursor.execute(query)
+            data = cursor.fetchall()
+        else:
+            data = []
+
+        clear_terminal()
+        print("\n" + "="*75)
+        print("                       🌱 KATALOG BENIH 🌱")
+        print("="*75)
+        print("="*75)
+        print("     Gunakan ID Benih untuk menambahkan ke keranjang belanja Anda.")
+        print("="*75)
+
+        if not data:
+            if pilih in ['1', '2', '3', '4']:
+                print("Belum ada benih yang tersedia.")
+            
+            print("="*75 + "\n")
+            return menu_customer(id_user, role)
+            
+        kategori_sekarang = None
+
+        for row in data:
+            id_benih, nama_benih, nama_kategori, harga, kadaluarsa, stok = row
+
+            if nama_kategori != kategori_sekarang:
+                kategori_sekarang = nama_kategori
+                print(f"\n📂 Kategori: {nama_kategori}")
+                print("-"*75)
+                print(f"{'ID Benih':^10} {'Nama Benih':^25} {'Harga':^10} {'Tanggal Kadaluarsa':^20} {'Stok':^7}")
+                print("-"*75)
+            
+            if kadaluarsa is not None:
+                tanggal_str = kadaluarsa.strftime("%Y-%m-%d")
+            else:
+                tanggal_str = "N/A"
+                
+            stok_display = stok if stok is not None else 0
+            
+            id_benih_display = id_benih if id_benih is not None else ""
+            nama_benih_display = nama_benih if nama_benih is not None else ""
+            harga_display = harga if harga is not None else ""
+
+            print(f"{id_benih_display:^10} {nama_benih_display:^25} {harga_display:^10} {tanggal_str:^20} {stok_display:^7}")
+            
+            stok = stok_display
+            
+        print()
+        kelas = input('pilih 1 untuk kembali dan 2 untuk pilih benih: ')
+        if kelas == '1':
+          clear_terminal()
+          Katalog_Benih(id_user, role)
+        elif kelas == '2':
+          connection, cursor = connect_db()
+          aku = input('masukkan id benih yg mau dibeli: ')
+          kmu = input('masukkan jumlah benih yg dibeli: ')
+          
+          if not aku or not kmu:
+              print(" ID Benih dan Jumlah tidak boleh kosong!")
+              print()
+              menu_customer(id_user, role)   
+            
+          try:
+              id_benih_beli = int(aku)
+              qty_dibeli = int(kmu) 
+          except ValueError:
+              print(" Input ID Benih dan Jumlah harus berupa angka yang valid!")
+              print()
+              menu_customer(id_user, role)
+
+          if qty_dibeli <= 0:
+                print(" Jumlah benih harus lebih dari nol!")
+                balik = input('tekan enter untuk kembali ke katalog: ')
+                if balik == '':
+                  clear_terminal()
+                  Katalog_Benih(id_user, role)
+              
+          sql_get_stok = """
+                SELECT COALESCE(SUM(jumlah_produksi), 0)
+                FROM riwayat_produksi
+                WHERE id_benih = %s;
+            """
+          cursor.execute(sql_get_stok, (id_benih_beli,))
+          stok_saat_ini = cursor.fetchone()[0]
+          
+          if stok_saat_ini <= 0:
+                print(f"❌ Benih dengan ID {id_benih_beli} saat ini KOSONG (Stok: 0). Tidak bisa dibeli.")
+                balik = input('tekan enter untuk kembali kek katalog: ')
+                if balik == '':
+                  clear_terminal()
+                  Katalog_Benih(id_user, role)
+              
+          if stok_saat_ini < qty_dibeli: 
+                print(f" Stok tidak mencukupi!")
+                print(f"   Stok tersedia: {stok_saat_ini}, Anda mencoba membeli: {qty_dibeli}")
+                balik = input('tekan enter untuk kembali ke katalog: ')
+                if balik == '':
+                  clear_terminal()
+                  Katalog_Benih(id_user, role)
+
+          id_pesanan = None
+          sql_get_keranjang = "SELECT id_pesanan FROM pesanan WHERE id_user = %s"
+          cursor.execute(sql_get_keranjang, (id_user,))
+          result = cursor.fetchone()
+            
+          if result:
+            id_pesanan = result[0]
+          elif result:
+            sql_insert_pesanan = """
+                    INSERT INTO pesanan (tanggal_pesanan, id_user)
+                    VALUES (CURRENT_DATE, %s) 
+                    RETURNING id_pesanan;
+                """
+            cursor.execute(sql_insert_pesanan, (id_user,))
+            new_id = cursor.fetchone()[0]
+            connection.commit()
+            
+          cursor.execute("SELECT id_pesanan FROM pesanan WHERE id_user = %s", (id_user,))
+
+          sql_insert_produk = """
+                            INSERT INTO detail_pesanan (quantity, id_pesanan, id_benih, status_pesanan)
+                            VALUES (%s, %s, %s, %s)
+                            """
+          status_item_saat_ini = 'di keranjang'
+          cursor.execute("SELECT id_pesanan FROM pesanan WHERE id_user = %s", (id_user,))
+          data_detail = (qty_dibeli, id_pesanan, id_benih_beli, status_item_saat_ini)
+          cursor.execute(sql_insert_produk, data_detail)
+          connection.commit()  
+          print()
+          
+          pergi = input('Benih sudah dimasukkan ke keranjang silahkan tekan enter untuk pergi ke menu keranjang')
+          if pergi == '':
+            connection.commit()
+            commit_db(connection, cursor)
+            clear_terminal()
+            Keranjang_Belanja(id_user, role)
+          else :
+            clear_terminal()
+            print('PILIHAN TIDAK VALID KEMBALI KE MENU CUSTOMER')
+            menu_customer(id_user, role)
+        else:
+            clear_terminal()
+            print('PILIHAN TIDAK VALID KEMBALI KE MENU CUSTOMER')
+            menu_customer(id_user, role)
+
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+        print()
+        print('=== DATA TIDAK VALID KEMBALI KE MENU ===')
+        print()
+        return menu_customer(id_user, role)
+    finally:
+        commit_db(connection, cursor)
+def Keranjang_Belanja(id_user, role):
+    id_pesanan_baru = None
+    connection, cursor = connect_db()
+    print('1. Tampilkan Keranjang Belanja')
+    print('2. Kembali Menu Customer')
+    pilih = input('Pilih Menu anda 1/2: ')
+    try:
+      if pilih == '1':
+            clear_terminal()
+            print("===============================               WELCOME TO KERANJANG               ===============================")
+            print()
+
+            cursor.execute("SELECT id_pesanan FROM pesanan WHERE id_user = %s", (id_user,))
+            result = cursor.fetchone()
+            if not result:
+                print("Keranjang tidak ditemukan.")
+                sql_insert_pesanan = """
+                                        INSERT INTO pesanan (tanggal_pesanan, id_user)
+                                        VALUES (CURRENT_DATE, %s) 
+                                        RETURNING id_pesanan;
+                                    """
+                cursor.execute(sql_insert_pesanan, (id_user,))
+
+            id_pesanan = result[0]
+            query = """
+                SELECT d.id_detail_pesanan, b.nama_benih, b.harga, d.quantity, (b.harga * d.quantity) AS total_harga
+                FROM detail_pesanan d
+                JOIN benih b ON d.id_benih = b.id_benih
+                WHERE d.id_pesanan = %s AND status_pesanan = 'di keranjang'
+                ORDER BY d.id_detail_pesanan
+            """
+            cursor.execute(query, (id_pesanan,))
+            results = cursor.fetchall()
+
+            if not results:
+                print()
+                print("Keranjang belanja Anda kosong.")
+                return menu_customer(id_user, role)
+    
+            for row in results:
+                print("===============================          Detail Keranjang Belanja Anda           ===============================")
+                print()
+                print(f"ID DETAIL   : {row[0]}       Nama Benih   : {row[1]}     harga: {row[2]}    Jumlah: {row[3]}     Total Harga: {row[4]}")
+                print()
+                print("================================================================================================================")  
+            print()
+            keranjang = []
+            total_semua = 0
+            keranjang.append({
+            'id_detail': row[0],
+            'nama_benih': row[1],
+            'harga': row[2],
+            'jumlah': row[3],
+            'total_harga': row[4]
+              })
+            total_semua +=row[4]
+            print(f"{'TOTAL KERANJANG':<100} Rp {total_semua:>}")
+            print("="*112)
+            
+            print("\nMasukkan ID DETAIL yang ingin dibeli (pisahkan dengan spasi):")
+            try:
+                pilihan = input(">>:  ").strip()
+                if not pilihan:
+                  print("Tidak ada item yang dipilih!")
+                  return pilihan
+            
+                id_detail = [int(x.strip()) for x in pilihan.split()]
+                dipilih = [item for item in keranjang if int(str(item['id_detail']).strip()) in id_detail]
+                
+                if not dipilih:
+                    print("Tidak ada item yang valid dipilih!")
+                    clear_terminal()
+                    return menu_customer(id_user, role)
+                
+                print(f"\n✅ {len(dipilih)} item dipilih untuk checkout!")
+                print("\n" + "="*100)
+                print(" " * 40 + "🛒 CHECKOUT")
+                print("="*100)
+                print(f"{'ID':<8} {'NAMA BENIH':<25} {'HARGA':<12} {'QTY':>4} {'SUB TOTAL':>15}")
+                print("-" * 100)
+                    
+                total_bayar = 0
+                for item in dipilih:
+                    print(f"{item['id_detail']:<8} {item['nama_benih']:<25} Rp {item['harga']:>3} {item['jumlah']:>7}        Rp {item['total_harga']:>7}")
+                    total_bayar += item['total_harga']
+                    print()
+                    print("-" * 100)
+                    print(f"{'TOTAL YANG HARUS DIBAYAR':<58} Rp {total_bayar:>3}")
+                    print("="*100)
+                    
+                    cursor.execute("SELECT id_pesanan FROM pesanan WHERE id_user = %s", (id_user,))
+                    keranjang = cursor.fetchone()
+                    if not keranjang:
+                        print(" Keranjang tidak ditemukan!")
+                    
+                    print("\n" + "="*50)
+                    print("INFORMASI PENGIRIMAN & PEMBAYARAN")
+                    print("="*50)
+                    
+                    metode_pembayaran = input("Metode Pembayaran tunai/non tunai): ").strip().lower()
+                    
+                    if not metode_pembayaran :
+                        print(" Metode pembayaran wajib diisi!")
+                        metode_pembayaran
+                    elif metode_pembayaran != 'tunai' and 'non tunai':
+                        print('PILIHAN TIDAK VALID')
+                        return Keranjang_Belanja(id_user, role)
+                    
+                    status_transaksi = 'dikemas'
+
+                    konfir = input('Anda yakin ingin untuk Membeli item ini ? ya/tidak: ').strip().lower()
+                    if konfir == 'ya':
+                        sql_update_status = """
+                            UPDATE detail_pesanan
+                            SET status_pesanan = %s
+                            WHERE id_pesanan = %s 
+                        """
+                        status_item_baru = 'dipesan'
+                        data_update = (status_item_baru, id_pesanan)
+                        cursor.execute(sql_update_status, data_update)
+                        # connection.commit()
+
+                        id_transaksi_baru = result[0]
+
+                        list = [item['id_detail'] for item in dipilih]
+                        status_item_baru = 'dipesan'
+                        for id_detail_keranjang in list:
+                            info = """
+                                SELECT id_benih, quantity
+                                FROM detail_pesanan
+                                WHERE id_detail_pesanan = %s
+                            """
+                            cursor.execute(info, (id_detail_keranjang,))
+                            item_data = cursor.fetchone()
+                            
+                            if item_data:
+                                id_benih_beli = item_data[0]
+                                qty_dibeli = item_data[1]
+
+                                sql_insert_transaki = """
+                                                        INSERT INTO transaksi (tanggal_transaksi, metode_pembayaran, status_transaksi, id_pesanan)
+                                                        VALUES (NOW(), %s, %s, %s)
+                                                        RETURNING id_transaksi;
+                                """
+                                transaksi_data = ( metode_pembayaran, status_transaksi, id_pesanan)
+                                cursor.execute(sql_insert_transaki, transaksi_data)
+                                result_transaksi = cursor.fetchone() 
+                                id_transaksi_baru = result_transaksi[0] 
+                                connection.commit()
+                
+                                sql_update_stok = """
+                                                UPDATE riwayat_produksi
+                                                SET jumlah_produksi = jumlah_produksi - %s
+                                                WHERE id_benih = %s;
+                                    """
+                                cursor.execute(sql_update_stok, (qty_dibeli, id_benih_beli))
+
+                        # hold = ', '.join(['%s'] * len(id_detail))
+                    print()
+                    print("="*50)
+                    print("PEMBELIAN BERHASIL!")
+                    print(f" No. Pesanan: #{id_transaksi_baru}")
+                    print(f" Total: Rp {total_bayar}")
+                    print("🛒 Keranjang sekarang KOSONG") 
+                    print()
+                    pergi = input('Silahkan tekan enter untuk pergi kembali ke menu customer')
+                    if pergi == '':
+                        commit_db(connection, cursor)
+                        clear_terminal()
+                        return menu_customer(id_user, role)
+                    else :
+                        clear_terminal()
+                        print('PILIHAN TIDAK VALID KEMBALI KE MENU CUSTOMER')
+                        return menu_customer(id_user, role)
+                else:
+                        clear_terminal()
+                        print('PILIHAN TIDAK VALID KEMBALI KE KERANJANG')
+                        print()
+                        return Keranjang_Belanja(id_user, role)
+            except ValueError:
+                  print(" Input tidak valid! Harus angka.")
+                  clear_terminal()
+                  pilihan
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+        print('=== DATA TIDAK VALID KEMBALI KE MENU ===')
+        print()
+        return menu_customer(id_user, role)
+    finally:
+        pass
+def Riwayat_Transaksi(id_user, role):
+    connect_db()
+    connection, cursor = connect_db()
+    print()
+    print('1. Tampilkan Fitur Transaksi')
+    print('2. Kembali Menu Customer')
+    pilih = input('Pilih Menu anda 1/2: ')
+    try:
+      clear_terminal()
+      if pilih == '1':
+          # checkout detail = join
+          query = """
+                  SELECT t.tanggal_transaksi, b.nama_benih, d.quantity, d.quantity*b.harga AS Total_bayar, u.detail_alamat, s.nama, k.nama
+
+                  FROM transaksi t
+                  JOIN detail_pesanan d ON d.id_pesanan = t.id_pesanan
+                  JOIN pesanan p ON p.id_pesanan = d.id_pesanan
+                  JOIN benih b ON b.id_benih = d.id_benih 
+                  JOIN users u ON p.id_user = u.id_user 
+                  JOIN desa s ON u.id_desa = s.id_desa
+                  JOIN kecamatan k ON s.id_kecamatan = k.id_kecamatan
+                  WHERE p.id_user = %s AND t.status_transaksi = %s
+                  ORDER BY t.tanggal_transaksi DESC, t.id_transaksi;
+          """
+          status = 'selesai'
+          cursor.execute(query, (id_user, status))
+          results = cursor.fetchall()
+          print()
+          print("=== WELCOME TO RIWAYAT TRANSAKSI ===")
+          print()
+          if not results:
+              print()
+              print("Tidak ada riwayat transaksi.")
+              print()
+              menu_customer(id_user, role)
+          else:
+              for row in results:
+                tanggal = str(row[0]) 
+                nama = row[1]
+                qty = row[2]
+                harga = row[3]
+                jalan = row[4]
+                desa = row[5]
+                kecamatan = row[6]
+                print(f"| {tanggal:^10} | {nama:^20} | {qty:^5} | {harga:^10} | {jalan:^25} | {desa:^10} | {kecamatan:^10} |")
+                print("-" * 112)
+          print()
+          balik = input('Tekan enter untuk kembali ke menu customer')
+          if balik == '':
+            clear_terminal()
+            menu_customer(id_user, role)
+          else :
+            menu_customer(id_user, role)
+      
+      elif pilih == '2':
+        menu_customer(id_user, role)
+      else:
+        print('=== PILIHAN TIDAK VALID ===')
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+        return menu_customer(id_user, role)
+    finally:
+          commit_db(connection, cursor)
+# FITUR ADMIN
+def generate_laporan(id_user):
+    connect_db()
+    connection, cursor = connect_db()
+    clear_terminal()
+    print("\n=== MENU LAPORAN ===")
+    print('1. Tampilkan seluruh Laporan')
+    print('2. Tampilkan laporan berdasarkan transaksi yang selesai')
+    print('3. Tampilkan laporan berdasarkan 3 bulan terakhir')
+    print('4. Kembali')
+    print()
+    pilih = input('Masukkan menu yang ingin ditampilkan (1/2/3/4): ')
+    try:
+      if pilih == '1':
+          print("\n" + "="*70)
+          query = '''
+                SELECT t.tanggal_transaksi, t.status_transaksi, t.metode_pembayaran, b.nama_benih
+                FROM transaksi t
+                JOIN detail_pesanan d ON d.id_pesanan = t.id_pesanan
+                JOIN benih b ON d.id_benih = b.id_benih
+                ORDER BY t.tanggal_transaksi DESC
+            '''
+          clear_terminal()
+      elif pilih == '2':
+            # STRING_AGG(b.nama_benih, ', '): menggabungkan nama benih menjadi satu string dalam satu transaksi.
+            query = '''
+                SELECT t.tanggal_transaksi, t.status_transaksi, t.metode_pembayaran, STRING_AGG(b.nama_benih, ', ')
+                FROM transaksi t
+                JOIN detail_pesanan d ON t.id_pesanan = d.id_pesanan
+                JOIN benih b ON d.id_benih = b.id_benih
+                WHERE t.status_transaksi = 'selesai'
+                GROUP BY t.id_transaksi
+            '''
+            clear_terminal()
+      elif pilih == '3':
+            query = '''
+                SELECT t.tanggal_transaksi, t.status_transaksi, t.metode_pembayaran, b.nama_benih
+                FROM transaksi t
+                JOIN detail_pesanan d ON d.id_pesanan = t.id_pesanan
+                JOIN benih b ON d.id_benih = b.id_benih
+                WHERE t.tanggal_transaksi >= CURRENT_DATE - INTERVAL '3 months'
+                ORDER BY t.tanggal_transaksi DESC
+            '''
+            clear_terminal()
+      elif pilih == '4' :
+        clear_terminal()
+        menu_customer(id_user, role)
+      else :
+        print('=== PILIHAN TIDAK VALID ===')
+        generate_laporan(id_user)
+      cursor.execute(query)
+      hasil = cursor.fetchall()
+      # fetchall() mengambil semua hasil query dalam bentuk list.
+      print("\n=== HASIL LAPORAN ===\n")
+      if not hasil:
+        print("Tidak ada data yang ditemukan.\n")
+      else:
+        for row in hasil:
+           print(f"Tanggal      : {row[0]}")
+           print(f"Status       : {row[1]}")
+           print(f"Pembayaran   : {row[2]}")
+           print(f"Benih        : {row[3]}")
+           print("-" * 40)
+      print()
+      input("Tekan enter untuk kembali....")
+      menu_admin(id_user, role)
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+    print()
+    print('=== DATA TIDAK VALID KEMBALI KE MENU ===')
+    print()
+    menu_admin(id_user, role)
+def update_status_pengiriman(id_user):
+    connection, cursor = connect_db()
+    try:
+        print("=== MONITORING & UPDATE STATUS PENGIRIMAN ===\n")
+        print()
+        print("Daftar Transaksi")
+        query = """
+            SELECT t.id_transaksi, t.tanggal_transaksi, STRING_AGG(b.nama_benih, ', '), SUM(d.quantity), t.status_transaksi
+            FROM transaksi t
+            JOIN detail_pesanan d ON t.id_pesanan = d.id_pesanan
+            JOIN pesanan p ON t.id_pesanan = p.id_pesanan
+            JOIN benih b ON d.id_benih = b.id_benih
+            GROUP BY t.id_transaksi, t.tanggal_transaksi, b.nama_benih, d.quantity, t.status_transaksi
+            ORDER BY t.id_transaksi
+        """
+        cursor.execute(query)
+        results = cursor.fetchall()
+        # fetchall() mengambil semua hasil query dalam bentuk list.
+        if not results:
+          print("Belum ada transaksi. \n")
+        else:
+          print("="*70)
+          for r in results:
+            print(f"ID Transaksi : {r[0]}")
+            print(f"Tanggal      : {r[1]}")
+            print(f"Nama Benih   : {r[2]}")
+            print(f"Quantity     : {r[3]}")
+            print(f"Status       : {r[4]}")
+            print("-"*70)
+        print("="*70)
+        print()
+        print('\n1. Update Status Pesanan')
+        print('2. Kembali')
+        pilih = input('Pilih Menu: ').strip()
+        if pilih == '1':
+          id_transaksi = input('Masukkan ID transaksi yang akan di update: ').strip()
+          clear_terminal()
+          if not id_transaksi.isdigit():
+            input("\nInput harus angka dan ID Tidak Boleh Kosong! Tekan enter..")
+            return update_status_pengiriman(id_user)
+          # MENGECEK ID TRANSAKSI APAKAH ADA DI DATABASE
+          cursor.execute("SELECT status_transaksi FROM transaksi WHERE id_transaksi = %s", (id_transaksi, ))
+          data = cursor.fetchone()
+          if not data:
+            input("\nERROR: ID TRANSAKSI TIDAK DITEMUKAN! TEKAN ENTER...")
+            return update_status_pengiriman(id_user)
+          # TIDAK BOLEH UPDATE JIKA STATUS SUDAH SELESAI
+          status_sekarang = data[0]
+          if status_sekarang == 'selesai':
+            input("\nTRANSAKSI SUDAH SELESAI & TIDAK DAPAT DIUBAH! TEKAN ENTER UNTUK KEMBALI...")
+            return update_status_pengiriman(id_user)
+          print(f"status saat ini: {status_sekarang}")
+          status_baru = input('Masukkan status baru (dikemas/dikirim/diterima/selesai): ').lower().strip()
+          status_valid = ['dikemas', 'dikirim', 'diterima', 'selesai']
+          # VALIDASI STATUS INPUT
+          if status_baru not in status_valid:
+            input("\nSTATUS TIDAK VALID! TEKAN ENTER UNTUK KEMBALI...")
+            return update_status_pengiriman(id_user)
+          # TIDAK BOLEH UPDATE STATUS YANG SAMA
+          if status_baru == status_sekarang:
+            input("\nSTATUS SUDAH DALAM KONDISI TERSEBUT! TEKAN ENTER...")
+            return update_status_pengiriman(id_user)
+          # URUTAN STATUS HARUS MAJU
+          tahap = {
+            'dikemas': 1,
+            'dikirim': 2,
+            'diterima': 3,
+            'selesai': 4
+          }
+
+          if tahap[status_baru] < tahap[status_sekarang]:
+                input("\nStatus tidak boleh mundur! Tekan Enter...")
+                return update_status_pengiriman(id_user)
+          # UPDATE STATUS  
+          cursor.execute("""
+              UPDATE transaksi
+              SET status_transaksi = %s:: enum_transaksi
+              WHERE id_transaksi = %s
+          """, (status_baru, id_transaksi))
+          connection.commit()
+          # commit() menyimpan perubahan.
+          input("\nStatus berhasil diupdate! Tekan Enter...")
+          return update_status_pengiriman(id_user)
+          
+        elif pilih == '2':
+            clear_terminal()
+            menu_admin(id_user, role)
+        else :
+          print('=== PILIHAN TIDAK VALID ===')
+          return update_status_pengiriman(id_user)
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+        return update_status_pengiriman(id_user)
+    finally:
+            if connection:
+                cursor.close()
+                connection.close()
+            menu_admin(id_user, role)
+# FITUR PRODUSEN
+def cek_stok(id_user):
+    connect_db()
+    connection, cursor = connect_db()
+    try:
+        print("=== CEK STOK HABIS/KADALUARSA ===")
+        print()
+        print('1. Tampilkan Stok Benih')
+        print('2. Kembali ke menu produsen')
+
+        pilih = input('Pilih menu anda 1/2: ')
+
+        if pilih == '1':
+            query = """
+                SELECT b.id_benih, b.nama_benih, b.harga,
+                MIN(r.tanggal_kadaluarsa) AS kadaluarsa_terdekat,
+                SUM(r.jumlah_produksi) AS stok
+                FROM benih b
+                LEFT JOIN riwayat_produksi r ON b.id_benih = r.id_benih
+                GROUP BY b.id_benih, b.nama_benih, b.harga
+                ORDER BY b.nama_benih ASC;
+            """
+            cursor.execute(query)
+            data = cursor.fetchall()
+            print("\nID | Nama Benih | Harga | Kadaluarsa | Total Stok")
+            print("-" * 100)
+            for row in data:
+                print(f"{row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]}")
+            print("-" * 100)
+        elif pilih == '2':
+            clear_terminal()
+            return menu_produsen(id_user, role)
+        else:
+            print('=== PILIHAN TIDAK VALID ===')
+    except Exception as e:
+        print(f"\nTerjadi Error: {e}")
+    input("\nTekan ENTER untuk kembali ke menu...")
+    clear_terminal()
+    return menu_produsen(id_user, role)
+def update_benih(id_user):
+    connection, cursor = connect_db()
+    try:
+        print()
+        print("=== UPDATE STOK BENIH ===")
+        print()
+        print("Daftar Stok")
+        query = """
+            SELECT b.id_benih, b.nama_benih,
+            STRING_AGG(CAST(r.jumlah_produksi AS TEXT), ', ') AS daftar_produksi,
+            SUM(r.jumlah_produksi) AS total_stok
+            FROM benih b
+            LEFT JOIN riwayat_produksi r ON b.id_benih = r.id_benih
+            GROUP BY b.id_benih, b.nama_benih
+            ORDER BY b.id_benih;
+        """
+        cursor.execute(query)
+        data = cursor.fetchall()
+
+        print("ID | Nama Benih | Daftar Produksi | Total Stok | Status Stok")
+        print("-" * 120)
+
+        for row in data:
+            id_benih = row[0]
+            nama = row[1]
+            daftar_produksi = row[2] if row[2] else "-"
+            total = row[3]
+            if total is None:
+                total = 0
+
+            if total == 0:
+             status_stok = "Habis"
+            elif total < 50:
+             status_stok = "Menipis"
+            else:
+             status_stok = "Aman" 
+
+            print(f"{id_benih} | {nama} | {daftar_produksi} | {total} | {status_stok}")
+            
+        print("-" * 120)
+        print()
+        id_benih = input("Masukkan ID Benih: ")
+        if not id_benih.isdigit():
+            print("\n=== DATA TIDAK VALID ===\n")
+            input("Tekan ENTER untuk kembali ke menu...")
+            clear_terminal()
+            return menu_produsen(id_user)
+        cursor.execute("SELECT id_benih FROM benih WHERE id_benih = %s",(id_benih,))
+        data = cursor.fetchone()
+
+        if not data:
+            print("\n=== ERROR: ID BENIH TIDAK DITEMUKAN ===")
+            input("Tekan ENTER untuk kembali...")
+            clear_terminal()
+            return menu_produsen(id_user)
+
+        
+        stok_baru = input("Masukkan Stok Baru: ")
+        if not stok_baru.isdigit():
+            print("\n=== DATA TIDAK VALID ===\n")
+            input("Tekan ENTER untuk kembali ke menu...")
+            clear_terminal()
+            return menu_produsen(id_user)
+        
+        id_benih = int(id_benih)
+        stok_baru = int(stok_baru)
+
+        if id_benih <= 0:
+           print("\n=== DATA TIDAK VALID (stok harus > 0) ===")
+           input("Tekan ENTER untuk kembali ke menu...")
+           clear_terminal()
+           return menu_produsen(id_user)
+
+        tanggal_kadaluarsa = input("Masukkan Tanggal Kadaluarsa YYYY-MM-DD: ")
+        from datetime import datetime
+        try:
+            tanggal_kadaluarsa = datetime.strptime(tanggal_kadaluarsa, "%Y-%m-%d").date()
+        except ValueError:
+            print("\n=== FORMAT TANGGAL TIDAK VALID (gunakan YYYY-MM-DD) ===")
+            input("Tekan ENTER untuk kembali ke menu...")
+            clear_terminal()
+            return menu_produsen(id_user)
+
+        query = query = """
+            INSERT INTO riwayat_produksi (id_benih, jumlah_produksi, tanggal_produksi,tanggal_kadaluarsa)
+            VALUES (%s, %s, CURRENT_DATE, %s)
+        """
+        cursor.execute(query, (id_benih, stok_baru, tanggal_kadaluarsa))
+        connection.commit()
+
+
+        query_total = """
+            SELECT b.id_benih, b.nama_benih,
+            SUM(r.jumlah_produksi) AS total_stok,
+            MIN(r.tanggal_kadaluarsa) AS kadaluarsa_terdekat
+            FROM benih b
+            LEFT JOIN riwayat_produksi r ON b.id_benih = r.id_benih
+            WHERE b.id_benih = %s
+            GROUP BY b.id_benih, b.nama_benih
+        """
+        cursor.execute(query_total, (id_benih,))
+        laporan = cursor.fetchone()
+        print("\n=== LAPORAN STOK TERBARU ===")
+        print(f"ID Benih           : {laporan[0]}")
+        print(f"Nama Benih         : {laporan[1]}")
+        print(f"Stok Ditambah      : {stok_baru}")
+        print(f"Total Stok         : {laporan[2]}")
+        print(f"Kadaluarsa Terdekat: {laporan[3]}")
+        print("=============================")
+
+        print("\nStok berhasil diperbarui!")
+
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+
+    print()
+    input("Tekan ENTER untuk kembali ke menu...")
+    clear_terminal()
+    menu_produsen(id_user)
+def daftar_pesanan(id_user):
+    connection, cursor = connect_db()
+    print("╔════════════════════════════════════════════════════════╗")
+    print("║                    DAFTAR PESANAN                      ║")
+    print("╚════════════════════════════════════════════════════════╝")
+    print()
+    try:
+        print(f"{'ID Pesanan':<12} {'ID User':<10} {'Benih':<20} {'Jumlah Pesanan':<10} {'Tanggal Pesan':<15}")
+        print("-"*80)
+    
+        query =  """
+            SELECT p.id_pesanan, p.id_user, b.nama_benih, dp.quantity, p.tanggal_pesanan
+            FROM detail_pesanan dp
+            JOIN pesanan p ON dp.id_pesanan = p.id_pesanan
+            JOIN benih b ON dp.id_benih = b.id_benih
+            ORDER BY p.id_pesanan ASC;
+        """
+        cursor.execute(query)   
+        results = cursor.fetchall()
+        for row in results:
+            id_pesanan = row[0]
+            user_id = row[1]
+            nama_benih = row[2]
+            jumlah = row[3]
+            tanggal = str(row[4]) if row[4] else "-" 
+
+            print(f"{id_pesanan:<12} {user_id:<10} {nama_benih:<20} {jumlah:<10} {tanggal:<15}")
+        print("-"*80)
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+
+    print()
+    input("\nTekan ENTER untuk kembali ke menu...")
+    clear_terminal()
+    menu_produsen(id_user)
+
+    print()
+    print("=== WELCOME CUSTOMERR ===")
+    print()
+    try:
+        print("1. Katalog Benih")
+        print("2. Keranjang Belanja")
+        print("3. Status Transaksi")
+        print("4. Riwayat Transaksi")
+        print("5. Keluar")
+        print()
+        pilih = input("Pilih Menu Customer: ")
+
+        if pilih == "1":
+            Katalog_Benih(id_user)
+        elif pilih == "2":
+            Keranjang_Belanja(id_user) 
+        elif pilih == "3":
+            Transaksi(id_user)
+        elif pilih == "4":
+            Riwayat_Transaksi(id_user)
+        elif pilih == "5":
+            clear_terminal()
+            print('Keluar dari menu Customer')
+            print()
+            gambar()
+            dashboard()
+        else :
+            clear_terminal()
+            print()
+            print('=== PILIHAN TIDAK VALID ===')
+            print()
+            menu_customer(id_user)
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+# MENU TIAP ROLE
+def menu_admin(id_user, role):
+    print()
+    print("=== WELCOME ADMIN ===")
+    print()
+    print("1. Tampilkan Laporan")
+    print("2. Monitoring & Update Status Pengiriman")
+    print("3. Keluar")
+    try: 
+        pilihan = input("Pilih menu (1/2/3): ")
+        if pilihan == '1':
+            clear_terminal()
+            generate_laporan(id_user)
+        elif pilihan == '2':
+            clear_terminal()
+            update_status_pengiriman(id_user)
+        elif pilihan == '3':
+            clear_terminal()
+            print("Berhasil keluar dari menu admin.")
+            print()
+            gambar()
+            dashboard()
+        else:
+            print()
+            clear_terminal()
+            print("Pilihan tidak valid. Silakan coba lagi.")
+            menu_admin(id_user, role)
+    except Exception as e :
+     print(f"Terjadi Error: {e}")
+     clear_terminal()
+     menu_admin(id_user, role)
+def menu_customer(id_user, role):
+    print()
+    print("=== WELCOME CUSTOMER ===")
+    print()
+    try:
+        print("1. Katalog Benih")
+        print("2. Keranjang Belanja")
+        print("3. Riwayat Transaksi")
+        print("4. Keluar")
+        print()
+        pilih = input("Pilih Menu Customer: ")
+
+        if pilih == "1":
+            clear_terminal()
+            Katalog_Benih(id_user, role)
+        elif pilih == "2":
+            clear_terminal()
+            Keranjang_Belanja(id_user, role) 
+        elif pilih == "3":
+            clear_terminal()
+            Riwayat_Transaksi(id_user, role)
+        elif pilih == "4":
+            clear_terminal()
+            print('Berhasil keluar dari menu Customer')
+            print()
+            gambar()
+            dashboard()
+        else :
+            clear_terminal()
+            print()
+            print('=== PILIHAN TIDAK VALID ===')
+            print()
+            menu_customer(id_user, role)
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+def menu_produsen(id_user, role):
+    print()
+    print("\n=== WELCOME PRODUSEN === ")
+    print()
+    print("1. Cek Stok Habis/Kadaluarsa")
+    print("2. Update Stok Benih")
+    print("3. Lihat Daftar Pesanan")
+    print("4. Keluar")
+    pilihan = input("Pilih menu (1/2/3/4): ")
+    if pilihan == '1':
+      clear_terminal()
+      cek_stok(id_user)
+    elif pilihan == '2':
+      clear_terminal()
+      update_benih(id_user)
+    elif pilihan == '3':
+      clear_terminal()
+      daftar_pesanan(id_user)
+    elif pilihan == '4':
+      clear_terminal()
+      print('Berhasil keluar dari Menu Produsen')
+      print()
+      gambar()
+      dashboard()
+    else:
+      clear_terminal()
+      print()
+      print("Pilihan tidak valid. Silakan coba lagi.")
+      print()
+      menu_produsen(id_user, role)
+def gambar():
+  print(""" 
+  █████████                        █████ ███████████             ███      █████                  
+ ███░░░░░███                      ░░███ ░░███░░░░░███           ░░░      ░░███                   
+░███    ░░░   ██████   ██████   ███████  ░███    ░███ ████████  ████   ███████   ███████  ██████ 
+░░█████████  ███░░███ ███░░███ ███░░███  ░██████████ ░░███░░███░░███  ███░░███  ███░░███ ███░░███
+ ░░░░░░░░███░███████ ░███████ ░███ ░███  ░███░░░░░███ ░███ ░░░  ░███ ░███ ░███ ░███ ░███░███████ 
+ ███    ░███░███░░░  ░███░░░  ░███ ░███  ░███    ░███ ░███      ░███ ░███ ░███ ░███ ░███░███░░░  
+░░█████████ ░░██████ ░░██████ ░░████████ ███████████  █████     █████░░████████░░███████░░██████ 
+ ░░░░░░░░░   ░░░░░░   ░░░░░░   ░░░░░░░░ ░░░░░░░░░░░  ░░░░░     ░░░░░  ░░░░░░░░  ░░░░░███ ░░░░░░  
+                                                                                ███ ░███         
+                                                                               ░░██████          
+                                                                                ░░░░░░                
+      """)
+  print('''
+        SeedBridge adalah sebuah platform digital yang dirancang untuk menghubungkan PT. Benih Citra Asia, 
+        para produsen benih, dan petani dalam satu ekosistem terpadu. Melalui aplikasi ini, seluruh proses 
+        mulai dari penyediaan stok benih, pemesanan, distribusi, hingga pelacakan transaksi dapat dilakukan 
+        secara real-time, lebih praktis, dan jauh lebih efisien dibanding cara manual.
+        ''')
+def dashboard():
+    try:
+      ds = input("Apakah sudah memiliki akun ? yes/no: ").lower()
+      if ds == "yes":
+        login()
+      elif ds == "no":
+        register()
+      else :
+        clear_terminal()
+        gambar()
+        print()
+        print()
+        print("=== INPUTAN TIDAK VALID ===")
+        print("=== COBA LAGI ===")
+        print()
+        dashboard()
+    except Exception as e :
+        print(f"Terjadi Error: {e}")
+        dashboard()
+def login():
+    connection, cursor = connect_db()
+    print("=== LOGIN AKUN ANDA ===")
+    usn = input("Username: ")
+    pw = input("Password: ")
+
+    query = """
+        SELECT id_user, role FROM users
+        WHERE username = %s AND password = %s
+    """
+    cursor.execute(query, (usn, pw))
+    result = cursor.fetchone()
+    
+    if not result:
+        clear_terminal()
+        gambar()
+        print()
+        print()
+        print("=== USERNAME ATAU PASSWORD SALAH, COBA LAGI ===")
+        return login()
+    
+    id_user, role = result
+    clear_terminal()
+    gambar()    
+
+    if role == "petani":
+        print("=== LOGIN BERHASIL SEBAGAI CUSTOMER ===")
+        menu_customer(id_user, role)
+    elif role == "produsen":
+        print("=== LOGIN BERHASIL SEBAGAI PRODUSEN ===")
+        menu_produsen(id_user, role)
+    elif role == "admin":
+        print("=== LOGIN BERHASIL SEBAGAI ADMIN ===")
+        menu_admin(id_user, role)
+    else:
+        print("Role tidak dikenali.")
+        print()
+        dashboard()
+# BIKIN AKUN BARU
+def register():
+    try: 
+        print("1. Customer")
+        print("2. Produsen")
+        pilih = input("Pilih jenis akun yang ingin anda buat 1/2: ").strip()
+
+        if pilih == "1": 
+            data_user("petani")
+            role = "petani"
+        elif pilih == "2":
+            data_user("produsen")
+            role = "produsen"
+        else:
+            clear_terminal()
+            gambar()
+            print("\n=== INPUT TIDAK VALID, COBA LAGI ===\n")
+            register()
+            return
+        close_db()
+
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+        register()
+def data_user(role):
+    connection, cursor = connect_db()
+    try:
+        # ====== NAMA ======
+        while True:
+            nama = input("Masukkan Nama: ").strip()
+            if nama:
+                break
+            clear_terminal()
+            print("Nama tidak boleh kosong!")
+
+        # ====== USERNAME ======
+        while True:
+            usn = input("Masukkan Username: ").strip()
+            if len(usn) < 8:
+                clear_terminal()
+                print("Username minimal 8 karakter!")
+                continue
+            cursor.execute("SELECT 1 FROM users WHERE username = %s", (usn,))
+            if cursor.fetchone():
+                clear_terminal()
+                print("Username sudah digunakan!")
+                continue
+            break
+
+        # ====== PASSWORD ======
+        while True:
+            pw = input("Masukkan Password: ").strip()
+            if len(pw) < 8:
+                clear_terminal()
+                print("Password minimal 8 karakter!")
+                continue
+            break
+
+        # ====== NO TELP ======
+        while True:
+            no_telp = input("Masukkan No. Telepon: ").strip()
+            if not (no_telp.isdigit() and len(no_telp) >= 10):
+                clear_terminal()
+                print("No. Telepon harus angka dan minimal 10 digit!")
+                continue
+            cursor.execute("SELECT 1 FROM users WHERE no_telp = %s", (no_telp,))
+            if cursor.fetchone():
+                clear_terminal()
+                print("No. Telepon sudah digunakan!")
+                continue
+            break
+
+        # ROLE CHECK: CUSTOMER WAJIB ISI ALAMAT
+        if role == "customer":
+            # PILIH KABUPATEN
+            cursor.execute("SELECT id_kabupaten, nama FROM kabupaten")
+            print("\nPilih Kabupaten:")
+            data_kab = cursor.fetchall()
+            for i, n in data_kab:
+                print(f"{i}. {n}")
+            while True:
+                id_kab_input = input("ID Kabupaten: ").strip()
+                if not id_kab_input:
+                    print("ID Kabupaten tidak boleh kosong!")
+                    continue
+                id_kab = int(id_kab_input)
+                break
+
+            # PILIH KECAMATAN
+            cursor.execute("SELECT id_kecamatan, nama FROM kecamatan WHERE id_kabupaten = %s", (id_kab,))
+            print("\nPilih Kecamatan:")
+            data_kec = cursor.fetchall()
+            for i, n in data_kec:
+                print(f"{i}. {n}")
+            while True:
+                id_kec_input = input("ID Kecamatan: ").strip()
+                if not id_kec_input:
+                    print("ID Kecamatan tidak boleh kosong!")
+                    continue
+                id_kec = int(id_kec_input)
+                break
+
+            # PILIH DESA
+            cursor.execute("SELECT id_desa, nama FROM desa WHERE id_kecamatan = %s", (id_kec,))
+            print("\nPilih Desa:")
+            data_desa = cursor.fetchall()
+            for i, n in data_desa:
+                print(f"{i}. {n}")
+            while True:
+                id_desa_input = input("ID Desa: ").strip()
+                if not id_desa_input:
+                    print("ID Desa tidak boleh kosong!")
+                    continue
+                id_desa = int(id_desa_input)
+                break
+
+            # DETAIL ALAMAT
+            while True:
+                detail_alamat = input("\nMasukkan Detail Alamat (nama jalan, RT/RW, no rumah): ").strip()
+                if detail_alamat:
+                    break
+                clear_terminal()
+                print("Detail alamat tidak boleh kosong!")
+        else:
+            detail_alamat = "Tidak ada"
+            id_desa = None 
+
+    except Exception as e:
+        print(f"Terjadi Error: {e}")
+        return register()
+
+    # ====== INSERT USERS ======
+    query = """
+        INSERT INTO users (username, password, nama, no_telp, role, detail_alamat, id_desa)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """
+    cursor.execute(query, (usn, pw, nama, no_telp, role, detail_alamat, id_desa))
+    connection.commit()
+
+    gambar()
+    print("=== Selamat Akun Anda Telah Dibuat ===")
+    dashboard()
+
+gambar()
+print("=== WELCOME TO OUR PLATFORM ===")
+print()
+dashboard()
