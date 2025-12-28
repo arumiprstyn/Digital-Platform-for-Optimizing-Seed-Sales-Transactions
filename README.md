@@ -43,7 +43,6 @@ The traditional transaction process often faces challenges such as:
 * **Tools**:
 
   * Visual Studio Code
-  * 
   * Draw.io (ERD Design)
   * Git & GitHub
 
@@ -126,9 +125,10 @@ Through this project, I learned:
 **Langgeng Arum Prasesti Ariyono**
 Information Technology Undergraduate – University of Jember
 
-📎 LinkedIn: [https://www.linkedin.com/in/langgengarumprasestiariyono](https://www.linkedin.com/in/langgengarumprasestiariyono)
-📎 GitHub: *(add your GitHub profile here)*
+📎 LinkedIn: (https://www.linkedin.com/in/langgengarumprasestiariyono)
 
-Notes for Recruiters
+
+
+## Notes for Recruiters 
 
 This project represents an **early-stage academic portfolio** demonstrating my foundational skills in **database systems, programming logic, and system analysis**. I am eager to continue learning and applying these skills in real-world environments through internships and collaborative projects.
